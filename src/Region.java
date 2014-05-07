@@ -14,15 +14,15 @@ public class Region {
     static int regionCounter = 0;
     static int canvas_width = -1, canvas_height = -1;
 
-    HashSet<Integer> pixels = new HashSet<Integer>();
-    int left, right, top, bottom;
-    BufferedImage image;
-    int color;
+    private HashSet<Integer> pixels = new HashSet<Integer>();
+    private int left, right, top, bottom;
+    private BufferedImage image;
+    private int color;
 
     public Region() throws IllegalStateException {
         if (canvas_width < 0 || canvas_height < 0) {
             throw new IllegalStateException
-                    ("Canvas size has not set appropriately.");
+                    ("The canvas size has not been set appropriately.");
         }
 
         // initialize position values
@@ -31,6 +31,7 @@ public class Region {
         this.right = -1;
         this.bottom = -1;
 
+        this.image = null;
         this.color = ColorConverter.RGB.rgb(
                 (int) (Math.random() * 255),
                 (int) (Math.random() * 255),
@@ -38,11 +39,30 @@ public class Region {
         );
     }
 
+    public Region(HashSet<Integer> pixels) throws IllegalStateException {
+        this();
+
+        for (int id : pixels) {
+            Point p = XY(id);
+            addPixel(p.x, p.y);
+        }
+    }
+
     public static void setCanvasSize(int w, int h) {
         canvas_width = w;
         canvas_height = h;
     }
 
+    public HashSet<Integer> getPixels() {
+        return this.pixels;
+    }
+
+    /**
+     * do a dilation operation
+     * @param original Original region
+     * @param r Radius of a circle used for dilation operation
+     * @return Dilated region
+     */
     public static Region doDilationOperation(Region original, int r) {
         Region region = new Region();
 
@@ -64,9 +84,9 @@ public class Region {
         int x_from = Math.max(original.left - r, 0);
         int x_to   = Math.min(original.right + r, canvas_width - 1);
         int y_from = Math.max(original.top - r, 0);
-        int y_to   = Math.min(original.bottom - r, canvas_height - 1);
-        for (int x = x_from; x < x_to; x++) {
-            for (int y = y_from; y < y_to; y++) {
+        int y_to   = Math.min(original.bottom + r, canvas_height - 1);
+        for (int x = x_from; x <= x_to; x++) {
+            for (int y = y_from; y <= y_to; y++) {
                 boolean flag = false;
 
                 // check if there is a region pixel around (x, y)
@@ -105,13 +125,15 @@ public class Region {
 
     public void drawImage(Graphics g) {
         if (image == null) {
+            System.out.println(right - left + 1);
+            System.out.println(bottom - top + 1);
             image = new BufferedImage(
                     right - left + 1,
                     bottom - top + 1,
                     BufferedImage.TYPE_INT_ARGB);
             for (int id : pixels) {
                 Point p = XY(id);
-                image.setRGB(p.x, p.y, this.color);
+                image.setRGB(p.x - left, p.y - top, this.color);
             }
         }
 
