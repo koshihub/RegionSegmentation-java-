@@ -61,9 +61,10 @@ public class Region {
      * do a dilation operation
      * @param original Original region
      * @param r Radius of a circle used for dilation operation
+     * @param search HashSet of search area
      * @return Dilated region
      */
-    public static Region doDilationOperation(Region original, int r) {
+    public static Region doDilationOperation(Region original, int r, HashSet<Integer> search) {
         Region region = new Region();
 
         /*
@@ -79,28 +80,40 @@ public class Region {
         }
 
         /*
+         * Set search area if 'search' is empty
+         */
+        if (search.isEmpty()) {
+            search = new HashSet<Integer>();
+
+            int x_from = Math.max(original.left - r, 0);
+            int x_to   = Math.min(original.right + r, canvas_width - 1);
+            int y_from = Math.max(original.top - r, 0);
+            int y_to   = Math.min(original.bottom + r, canvas_height - 1);
+            for (int x = x_from; x <= x_to; x++) {
+                for (int y = y_from; y <= y_to; y++) {
+                    search.add(ID(x, y));
+                }
+            }
+        }
+
+        /*
          * Dilation operation
          */
-        int x_from = Math.max(original.left - r, 0);
-        int x_to   = Math.min(original.right + r, canvas_width - 1);
-        int y_from = Math.max(original.top - r, 0);
-        int y_to   = Math.min(original.bottom + r, canvas_height - 1);
-        for (int x = x_from; x <= x_to; x++) {
-            for (int y = y_from; y <= y_to; y++) {
-                boolean flag = false;
+        for (int id : search) {
+            Point pos = XY(id);
+            boolean flag = false;
 
-                // check if there is a region pixel around (x, y)
-                for(Point p : rdlist) {
-                    if (original.contains(x + p.x, y + p.y )) {
-                        flag = true;
-                        break;
-                    }
+            // check if there is a region pixel around (x, y)
+            for(Point p : rdlist) {
+                if (original.contains(pos.x + p.x, pos.y + p.y )) {
+                    flag = true;
+                    break;
                 }
+            }
 
-                // point (x, y) is added by dilation operation
-                if (flag) {
-                    region.addPixel(x, y);
-                }
+            // point (x, y) is added by dilation operation
+            if (flag) {
+                region.addPixel(pos.x, pos.y);
             }
         }
 
@@ -123,10 +136,12 @@ public class Region {
         return pixels.contains(ID(x, y));
     }
 
+    public void setColor(int r, int g, int b) {
+        this.color = ColorConverter.RGB.rgb(r, g, b);
+    }
+
     public void drawImage(Graphics g) {
         if (image == null) {
-            System.out.println(right - left + 1);
-            System.out.println(bottom - top + 1);
             image = new BufferedImage(
                     right - left + 1,
                     bottom - top + 1,

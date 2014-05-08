@@ -1,9 +1,11 @@
 import javax.swing.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Stack;
 
 import ImageUtility.ColorConverter.*;
 import ImageUtility.Filter;
@@ -100,58 +102,89 @@ public class Segmentation extends SwingWorker<Integer, Segmentation.Status> {
         return region;
     }
 
-    private Region extractSegmentedRegion(Point origin, final Region dilatedBorder) {
+    private ArrayList<Region> growSeedRegions(final Stack<HashSet<Integer>> seeds, final HashSet<Integer> remain) {
+        ArrayList<Region> result = new ArrayList<Region>();
 
         /*
-         * Get a rough region by flood filling.
+         * Create hash table of regions.
          */
-        final HashSet<Integer> rough = (
-                new Util.FloodFill(width, height) {
-                    @Override
-                    public boolean isWall(int x, int y) {
-                        return dilatedBorder.contains(x, y);
-                    }
-                }
-        ).execute(origin);
-
-        /*
-         * Get the average color of a new segmented region.
-         */
-        final int averageColor;
-        final int[] labData = imageBilateral.getLabData();
-        int sum_l = 0, sum_a = 0, sum_b = 0;
-        for (int id : rough) {
-            Point p = XY(id);
-            int lab = labData[p.y * width + p.x];
-            sum_l += Lab.l(lab);
-            sum_a += Lab.a(lab);
-            sum_b += Lab.b(lab);
+        final HashSet<Integer>[][] table = new HashSet[width][height];
+        for (HashSet<Integer> seed : seeds) {
+            for (int id : seed) {
+                Point p = XY(id);
+                table[p.x][p.y] = seed;
+            }
         }
-        averageColor = Lab.lab(
-                Math.round(sum_l / rough.size()),
-                Math.round(sum_a / rough.size()),
-                Math.round(sum_b / rough.size())
-        );
 
-        /*
-         * Get a grown region by flood filling.
-         * The edge of a large color difference from average color is regarded as a wall.
-         */
-        HashSet<Integer> grown = (
-                new Util.FloodFill(width, height) {
-                    @Override
-                    public boolean isWall(int x, int y) {
-                        if (!rough.contains(ID(x, y)) &&
-                                (border.contains(x, y) || Lab.distance(labData[y * width + x], averageColor) >= 8)) {
-                            return true;
-                        } else {
-                            return false;
-                        }
-                    }
+        while (!seeds.isEmpty()) {
+            /*
+             * The stack of connected regions.
+             */
+            final Stack<HashSet<Integer>> connected = new Stack<HashSet<Integer>>();
+            connected.push(seeds.pop());
+
+            /*
+             * Continue connecting new regions until connected regions become empty.
+             */
+            HashSet<Integer> grown = null;
+            while (!connected.isEmpty()) {
+                final HashSet<Integer> neighbor = connected.pop();
+
+                // Get the average color of a neighbor region.
+                final int averageColor;
+                final int[] labData = imageBilateral.getLabData();
+                int sum_l = 0, sum_a = 0, sum_b = 0;
+                for (int id : neighbor) {
+                    Point p = XY(id);
+                    int lab = labData[p.y * width + p.x];
+                    sum_l += Lab.l(lab);
+                    sum_a += Lab.a(lab);
+                    sum_b += Lab.b(lab);
                 }
-        ).execute(origin);
+                averageColor = Lab.lab(
+                        Math.round(sum_l / neighbor.size()),
+                        Math.round(sum_a / neighbor.size()),
+                        Math.round(sum_b / neighbor.size())
+                );
 
-        return new Region(grown);
+                // Grow the neighbor region.
+                HashSet<Integer> grownNeighbor = (
+                        new Util.FloodFill(width, height) {
+                            @Override
+                            public boolean isWall(int x, int y) {
+                                if ( !remain.contains(ID(x,y)) ||
+                                    (!neighbor.contains(ID(x, y)) &&
+                                        (border.contains(x, y) ||
+                                         Lab.distance(labData[y * width + x], averageColor) >= 10))
+                                ) {
+                                    return true;
+                                } else {
+                                    // Reached to neighbor region
+                                    if (seeds.contains(table[x][y])) {
+                                        connected.push(table[x][y]);
+                                        seeds.remove(table[x][y]);
+                                        return true;
+                                    }
+
+                                    return false;
+                                }
+                            }
+                        }
+                ).execute(XY(neighbor.iterator().next()));
+
+                // Append
+                if (grown == null) {
+                    grown = grownNeighbor;
+                }
+                else {
+                    grown.addAll(grownNeighbor);
+                }
+            }
+
+            result.add(new Region(grown));
+        }
+
+        return result;
     }
 
     @Override
@@ -191,37 +224,75 @@ public class Segmentation extends SwingWorker<Integer, Segmentation.Status> {
 
         /*
          * Region segmentation.
-         * Iterate loop while decreasing the radius of the trapped ball.
          */
+
+        // The pixels which have not been assigned to any regions.
         HashSet<Integer> allPixel = new HashSet<Integer>();
         for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
                 allPixel.add(ID(x, y));
             }
         }
-        for (int ballR = 8; ballR >= 1; ballR--) {
+        allPixel.removeAll(border.getPixels());
+
+        // Hash table of regions
+        HashSet<Integer>[][] regionTable = new HashSet[width][height];
+
+        // Iterate loop while decreasing the radius of the trapped ball.
+        Region prevDilatedBorder = new Region();
+        for (int ballR = 5; ballR >= 0; ballR--) {
             HashSet<Integer> remain = new HashSet<Integer>(allPixel);
 
             /*
              * Do dilation operation to the border,
              * and remove the dilated border from 'remain' pixels
              */
-            Region dilatedBorder = Region.doDilationOperation(border, ballR);
+            final Region dilatedBorder = Region.doDilationOperation(border, ballR, prevDilatedBorder.getPixels());
+            prevDilatedBorder = dilatedBorder;
             remain.removeAll(dilatedBorder.getPixels());
 
             /*
-             * Extract new regions until 'remain' becomes empty
+             * Extract seed regions until 'remain' becomes empty
              */
+            Stack<HashSet<Integer>> seeds = new Stack<HashSet<Integer>>();
             while (!remain.isEmpty()) {
                 Point origin = XY(remain.iterator().next());
 
-                /*
-                 * Extract region and remove the region pixels from 'remain'
-                 */
-                Region region = extractSegmentedRegion(origin, dilatedBorder);
-                remain.removeAll(region.getPixels());
-                regions.add(region);
+                // Get seed region by flood filling
+                final HashSet<Integer> remainPixel = allPixel;
+                HashSet<Integer> newSeed = (
+                        new Util.FloodFill(width, height) {
+                            @Override
+                            public boolean isWall(int x, int y) {
+                                if (dilatedBorder.contains(x, y) || !remainPixel.contains((ID(x,y)))) {
+                                    return true;
+                                }
+                                else {
+                                    return false;
+                                }
+                            }
+                        }
+                ).execute(origin);
+
+                // Remove seed pixels from 'remain'
+                remain.removeAll(newSeed);
+
+                // Add to stack
+                seeds.push(newSeed);
             }
+
+            /*
+             * Grow all seed regions, and connect neighbor regions.
+             * Append regions to 'regions' and remove pixels from all pixel.
+             */
+            ArrayList<Region> grownRegions = growSeedRegions(seeds, allPixel);
+            regions.addAll(grownRegions);
+            for (Region r : grownRegions) {
+                allPixel.removeAll(r.getPixels());
+            }
+
+            System.out.println("BallR: " + ballR);
+            System.out.println("Appended regions: " + grownRegions.size());
             break;
         }
         currentStatus = Status.SEGMENTED;
