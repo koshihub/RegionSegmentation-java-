@@ -19,7 +19,7 @@ public class Filter {
 
         // apply filter
         int kernel = 3;            // kernel size
-        double s1 = 10, s2 = 15;    // sigma values
+        double s1 = 100, s2 = 10;    // sigma values
         double i2ss1 = 0.5 / s1 / s1, i2ss2 = 0.5 / s2 / s2;
 
         for (int x = 0; x < w; x++) {

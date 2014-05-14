@@ -36,8 +36,15 @@ public class Util {
          */
         abstract public boolean isWall(int x, int y);
 
-        public HashSet<Integer> execute(Point origin) {
+        /**
+         * Define an extra operation for filled pixels
+         * @param x X value
+         * @param y Y value
+         * @return
+         */
+        public void doOperation(int x, int y) {};
 
+        public HashSet<Integer> execute(Point origin) {
             HashSet<Integer> filled = new HashSet<Integer>();
             Stack<Point> stack = new Stack<Point>();
             stack.push(origin);
@@ -48,7 +55,7 @@ public class Util {
                 // already filled pixel
                 if( filled.contains(ID(p.x, p.y)) ) continue;
 
-                // search for left and right
+                // search for the left and the right terminal
                 int left, right;
                 for (left=p.x; left>0; left--) {
                     if( isWall(left-1, p.y) ) {
@@ -64,6 +71,9 @@ public class Util {
                 // fill from left to right
                 for(int x=left; x<=right; x++) {
                     filled.add(ID(x, p.y));
+
+                    // do user-defined operation
+                    doOperation(x, p.y);
                 }
 
                 // scan new points
