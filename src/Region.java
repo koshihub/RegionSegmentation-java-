@@ -15,8 +15,8 @@ public class Region {
     static int canvas_width = -1, canvas_height = -1;
 
     private HashSet<Integer> pixels = new HashSet<Integer>();
-    private int left, right, top, bottom;
-    private BufferedImage image;
+    protected int left, right, top, bottom;
+    protected BufferedImage image;
     private int color;
 
     public Region() throws IllegalStateException {
@@ -82,7 +82,7 @@ public class Region {
         /*
          * Set search area if 'search' is empty
          */
-        if (search.isEmpty()) {
+        if (search == null || search.isEmpty()) {
             search = new HashSet<Integer>();
 
             int x_from = Math.max(original.left - r, 0);
@@ -121,7 +121,6 @@ public class Region {
     }
 
     public void addPixel(int x, int y) {
-
         // set position values
         if (x < this.left) this.left = x;
         if (x > this.right) this.right = x;

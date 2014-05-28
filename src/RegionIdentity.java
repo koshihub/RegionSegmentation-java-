@@ -5,6 +5,7 @@ public class RegionIdentity {
 
     private static int __counter = 0;
     private int id;
+    private Region region;
 
     public RegionIdentity() {
         __counter ++;
@@ -17,5 +18,9 @@ public class RegionIdentity {
 
     public int getID() {
         return this.id;
+    }
+
+    public void assignRegion(Region region) {
+        this.region = region;
     }
 }

@@ -36,7 +36,7 @@ public class Segmentation extends SwingWorker<Integer, Segmentation.Status> {
     private RawImage imageBilateral;
     private RawImage imageEdgeEnhanced;
 
-    private Region border;
+    private Border border;
     private ArrayList<Region> regions = new ArrayList<Region>();
     private ArrayList<HashSet<Integer>> hash_regions = new ArrayList<HashSet<Integer>>();
 
@@ -82,6 +82,7 @@ public class Segmentation extends SwingWorker<Integer, Segmentation.Status> {
                 for (Region r : regions) {
                     r.drawImage(temp.getGraphics());
                 }
+                border.drawImage(temp.getGraphics());
                 return temp;
         }
 
@@ -93,8 +94,8 @@ public class Segmentation extends SwingWorker<Integer, Segmentation.Status> {
      * @param data Edge enhanced image data (gray scale)
      * @return A border region
      */
-    private Region createBorderRegion(int[] data) {
-        Region region = new Region();
+    private Border createBorderRegion(int[] data) {
+        Border region = new Border();
         for(int x=0; x<width; x++) {
             for(int y=0; y<height; y++) {
                 int index = y * width + x;
@@ -162,6 +163,9 @@ public class Segmentation extends SwingWorker<Integer, Segmentation.Status> {
                             }
                             // reached to a border
                             else if (isBorder || colorEdge) {
+                                if (isBorder) {
+                                    border.addNeighborRegion(x, y, currentSeedIdentity);
+                                }
                                 wall = true;
                             }
                             // reached to already assigned region
@@ -250,7 +254,7 @@ public class Segmentation extends SwingWorker<Integer, Segmentation.Status> {
 
         // Iterate loop while decreasing the radius of the trapped ball.
         Region prevDilatedBorder = new Region();
-        for (int ballR = 5; ballR >= 1; ballR--) {
+        for (int ballR = 8; ballR >= 1; ballR--) {
             HashSet<Integer> remain = new HashSet<Integer>(allPixel);
 
             /*
@@ -300,6 +304,11 @@ public class Segmentation extends SwingWorker<Integer, Segmentation.Status> {
                 // Add to stack
                 seeds.add(newSeed);
             }
+            for (HashSet<Integer> seed : seeds) {
+                Region r = new Region(seed);
+                //regions.add(Region.doDilationOperation(r, 8, null));
+                //regions.add(r);
+            }
 
             /*
              * Grow all seed regions, and connect neighbor regions.
@@ -308,52 +317,73 @@ public class Segmentation extends SwingWorker<Integer, Segmentation.Status> {
             growSeedRegions(seeds, allPixel);
         }
 
+        if ( true ) {
+        /*
+         * Regard the remaining small pixels as borders
+         */
+            for (int id : allPixel) {
+                Point p = XY(id);
+                border.addPixel(p.x, p.y);
+                for (int i = -1; i <= 1; i++) {
+                    for (int j = -1; j <= 1; j++) {
+                        int xx = p.x+i, yy = p.y+j;
+                        if ( xx >= 0 && xx < width && yy >= 0 && yy < height) {
+                            if (regionIdentityTable[xx][yy] != null) {
+                                border.addNeighborRegion(p.x, p.y, regionIdentityTable[xx][yy]);
+                            }
+                        }
+                    }
+                }
+            }
+
         /*
          * Modify the region ids by looking at the sameIdentityGroups
          */
-        for (HashSet<RegionIdentity> group : sameIdentityGroups) {
-            int id = -1;
-            for (RegionIdentity ri : group) {
-                if (id == -1) {
-                    id = ri.getID();
-                }
-                else {
-                    ri.setID(id);
+            for (HashSet<RegionIdentity> group : sameIdentityGroups) {
+                int id = -1;
+                for (RegionIdentity ri : group) {
+                    if (id == -1) {
+                        id = ri.getID();
+                    }
+                    else {
+                        ri.setID(id);
+                    }
                 }
             }
-        }
 
         /*
          * Scan all regions
          */
-        HashSet<Integer> borderPixels = new HashSet<Integer>();
-        HashMap<Integer, Region> mapping = new HashMap<Integer, Region>();
-        for (int x = 0; x < width; x++) {
-            for (int y = 0; y < height; y++) {
-                if (regionIdentityTable[x][y] != null) {
-                    // Pixel (x, y) is assigned to a region
-                    int id = regionIdentityTable[x][y].getID();
-                    if (mapping.containsKey(id)) {
-                        mapping.get(id).addPixel(x, y);
-                    } else {
-                        Region newRegion = new Region();
-                        newRegion.addPixel(x, y);
-                        mapping.put(id, newRegion);
+            HashSet<Integer> borderPixels = new HashSet<Integer>();
+            HashMap<Integer, Region> mapping = new HashMap<Integer, Region>();
+            for (int x = 0; x < width; x++) {
+                for (int y = 0; y < height; y++) {
+                    if (regionIdentityTable[x][y] != null) {
+                        // Pixel (x, y) is assigned to a region
+                        int id = regionIdentityTable[x][y].getID();
+                        Region assignedRegion;
+                        if (mapping.containsKey(id)) {
+                            assignedRegion = mapping.get(id);
+                        } else {
+                            assignedRegion = new Region();
+                            mapping.put(id, assignedRegion);
+                        }
+                        assignedRegion.addPixel(x, y);
+
+                        // Assign Region to RegionIdentity
+                        regionIdentityTable[x][y].assignRegion(assignedRegion);
+                    }
+                    else {
+                        // Pixel (x, y) is a border
+                        borderPixels.add(ID(x, y));
                     }
                 }
-                else {
-                    // Pixel (x, y) is a border
-                    borderPixels.add(ID(x, y));
-                }
             }
+
+            // Add regions
+            regions.addAll(mapping.values());
+
         }
-
-        // Add regions
-        regions.addAll(mapping.values());
-
-        // Add border
-        Border border = new Border(width, height, borderPixels);
-
         currentStatus = Status.SEGMENTED;
         publish(currentStatus);
 
